@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sistema Solar con Gestos</title>
+<link rel="icon" type="image/png" href="galaxia.png">
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000; color: #fff;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+  }
+
+  #stars, #stars2, #stars3 {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  #stars  { background: radial-gradient(1px 1px at 20% 30%, #fff, transparent),
+                       radial-gradient(1px 1px at 70% 80%, #fff, transparent),
+                       radial-gradient(1px 1px at 40% 60%, #fff, transparent),
+                       radial-gradient(2px 2px at 85% 15%, #fff, transparent),
+                       radial-gradient(1px 1px at 10% 90%, #fff, transparent);
+            background-size: 300px 300px;
+            animation: drift 120s linear infinite; }
+  #stars2 { background: radial-gradient(1px 1px at 50% 50%, #fff, transparent),
+                       radial-gradient(1px 1px at 25% 75%, #fff, transparent),
+                       radial-gradient(2px 2px at 90% 40%, #fff, transparent);
+            background-size: 500px 500px;
+            animation: drift 200s linear infinite; opacity: .7; }
+  #stars3 { background: radial-gradient(1px 1px at 15% 25%, #fff, transparent),
+                       radial-gradient(1px 1px at 65% 35%, #fff, transparent),
+                       radial-gradient(1px 1px at 80% 70%, #fff, transparent);
+            background-size: 700px 700px;
+            animation: drift 300s linear infinite; opacity: .5; }
+  @keyframes drift {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-1000px); }
+  }
+
+  #solarCanvas {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+  }
+
+  #webcam {
+    position: fixed; bottom: 20px; right: 20px;
+    width: 200px; height: 150px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-radius: 10px;
+    transform: scaleX(-1);
+    z-index: 10;
+    object-fit: cover;
+  }
+
+  #debugCanvas {
+    position: fixed; bottom: 20px; right: 20px;
+    width: 200px; height: 150px;
+    border: 2px solid #00e5ff;
+    border-radius: 10px;
+    z-index: 11;
+    pointer-events: none;
+    transform: scaleX(-1);
+  }
+
+  #info {
+    position: fixed; top: 20px; left: 20px;
+    background: rgba(0,0,0,.6);
+    border: 1px solid rgba(255,255,255,.2);
+    padding: 12px 18px;
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+    z-index: 5;
+    font-size: 14px;
+  }
+  #info h2 { font-size: 16px; margin-bottom: 6px; color: #ffcc00; }
+  #fingerCount {
+    font-size: 32px; font-weight: bold;
+    color: #00e5ff;
+  }
+
+  #planetMessage {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 600px; width: 90%;
+    background: rgba(0,0,0,.75);
+    border: 2px solid rgba(255,255,255,.3);
+    border-radius: 20px;
+    padding: 30px 40px;
+    text-align: center;
+    backdrop-filter: blur(12px);
+    z-index: 4;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .5s ease;
+  }
+  #planetMessage.show { opacity: 1; }
+  #planetMessage h1 {
+    font-size: 42px;
+    margin-bottom: 15px;
+    background: linear-gradient(90deg, #ffcc00, #ff6600);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  #planetMessage p {
+    font-size: 18px; line-height: 1.6;
+    color: #e0e0e0;
+  }
+  #planetMessage .emoji {
+    font-size: 60px; display: block; margin-bottom: 10px;
+  }
+
+  #loading {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    text-align: center;
+    color: #fff;
+  }
+  #loading .spinner {
+    width: 50px; height: 50px;
+    border: 4px solid rgba(255,255,255,.2);
+    border-top-color: #00e5ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="stars"></div>
+<div id="stars2"></div>
+<div id="stars3"></div>
+
+<canvas id="solarCanvas"></canvas>
+
+<video id="webcam" autoplay playsinline muted></video>
+<canvas id="debugCanvas"></canvas>
+
+<div id="info">
+  <h2>🖐️ Sistema Solar Gestual</h2>
+  <div>👆 Dedos levantados: <span id="fingerCount">0</span></div>
+  <div style="margin-top:6px; font-size:12px; opacity:.8;">
+    0 = Vista completa · 1-8 = Ver planeta
+  </div>
+</div>
+
+<div id="planetMessage">
+  <span class="emoji" id="msgEmoji">🌍</span>
+  <h1 id="msgTitle">Planeta</h1>
+  <p id="msgText">Mensaje</p>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Cargando detección de manos...</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+const planets = [
+  { name: "Mercurio", emoji: "🟢", color: "#b5b5b5", size: 8,  orbit: 60,  speed: 0.025,
+    message: "Mamá, eres la primera luz que guía mi vida y la primera luz que me ilumina." },
+  { name: "Venus", emoji: "🌑", color: "#e8b87a", size: 12, orbit: 95,  speed: 0.018,
+    message: "Tu amor es el más bello y cálido de todos los universos" },
+  { name: "Tierra", emoji: "🌍", color: "#4a90e2", size: 13, orbit: 130, speed: 0.015,
+    message: "En ti encuentro mi hogar, mi paz y mi fuerza" },
+  { name: "Marte", emoji: "🔴", color: "#d14b2c", size: 10, orbit: 170, speed: 0.012,
+    message: "Eres mi guerrera, la que nunca se rinde por mí" },
+  { name: "Júpiter", emoji: "🟠", color: "#d4a373", size: 28, orbit: 230, speed: 0.008,
+    message: "Tu amor es tan grande que llena todo mi universo." },
+  { name: "Saturno", emoji: "🪐", color: "#e6c88a", size: 24, orbit: 290, speed: 0.006, rings: true,
+    message: "Tus abrazos son como anillos que me protegen siempre." },
+  { name: "Urano", emoji: "🔵", color: "#7fd8d8", size: 18, orbit: 340, speed: 0.004,
+    message: "Eres diferente, única y perfecta tal como eres." },
+  { name: "Neptuno", emoji: "🔷", color: "#3d5afe", size: 17, orbit: 380, speed: 0.003,
+    message: "Tu amor profundo es infinito como el océano del espacio" }
+];
+
+const canvas = document.getElementById('solarCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, centerX, centerY, scale = 1;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  centerX = W / 2;
+  centerY = H / 2;
+  scale = Math.min(W, H) / 900;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let activePlanet = -1;
+let angles = planets.map(() => Math.random() * Math.PI * 2);
+let focusTransition = 0;
+let targetFocus = 0;
+
+function drawSun(x, y, radius) {
+  const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius * 3);
+  gradient.addColorStop(0, 'rgba(255,220,100,0.8)');
+  gradient.addColorStop(0.3, 'rgba(255,150,0,0.4)');
+  gradient.addColorStop(1, 'rgba(255,100,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  const sunGrad = ctx.createRadialGradient(x - radius*0.3, y - radius*0.3, 0, x, y, radius);
+  sunGrad.addColorStop(0, '#fff8b0');
+  sunGrad.addColorStop(0.5, '#ffcc00');
+  sunGrad.addColorStop(1, '#ff6600');
+  ctx.fillStyle = sunGrad;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPlanet(planet, x, y, radius) {
+  const grad = ctx.createRadialGradient(x - radius*0.3, y - radius*0.3, 0, x, y, radius);
+  grad.addColorStop(0, lightenColor(planet.color, 40));
+  grad.addColorStop(1, planet.color);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (planet.rings) {
+    ctx.strokeStyle = 'rgba(230,200,138,0.7)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * 1.8, radius * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(230,200,138,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * 2.1, radius * 0.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function lightenColor(hex, amt) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) + amt;
+  let g = ((num >> 8) & 0xff) + amt;
+  let b = (num & 0xff) + amt;
+  r = Math.min(255, Math.max(0, r));
+  g = Math.min(255, Math.max(0, g));
+  b = Math.min(255, Math.max(0, b));
+  return `rgb(${r},${g},${b})`;
+}
+
+function drawOrbit(x, y, radius) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function animate() {
+  ctx.clearRect(0, 0, W, H);
+
+  focusTransition += (targetFocus - focusTransition) * 0.08;
+
+  const fullScale = scale;
+  const fullCenterX = centerX;
+  const fullCenterY = centerY;
+
+  let focusCenterX = centerX;
+  let focusCenterY = centerY;
+  let focusScale = 1;
+  if (activePlanet >= 0 && activePlanet < planets.length) {
+    const p = planets[activePlanet];
+    const px = Math.cos(angles[activePlanet]) * p.orbit * scale;
+    const py = Math.sin(angles[activePlanet]) * p.orbit * scale;
+    focusCenterX = centerX - px * 0.3;
+    focusCenterY = centerY - py * 0.3;
+    focusScale = 1.8;
+  }
+
+  const currentScale = fullScale * (1 - focusTransition) + fullScale * focusScale * focusTransition;
+  const currentCX = fullCenterX * (1 - focusTransition) + focusCenterX * focusTransition;
+  const currentCY = fullCenterY * (1 - focusTransition) + focusCenterY * focusTransition;
+
+  if (focusTransition < 0.95) {
+    ctx.globalAlpha = 1 - focusTransition;
+    planets.forEach(p => {
+      drawOrbit(currentCX, currentCY, p.orbit * currentScale);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  drawSun(currentCX, currentCY, 30 * currentScale);
+
+  planets.forEach((p, i) => {
+    angles[i] += p.speed;
+    const r = p.orbit * currentScale;
+    const px = currentCX + Math.cos(angles[i]) * r;
+    const py = currentCY + Math.sin(angles[i]) * r;
+    const size = p.size * currentScale;
+
+    if (focusTransition > 0.1 && activePlanet !== i) {
+      ctx.globalAlpha = 1 - focusTransition;
+    } else {
+      ctx.globalAlpha = 1;
+    }
+
+    drawPlanet(p, px, py, size);
+
+    if (focusTransition < 0.5) {
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.font = `${12 * currentScale}px Segoe UI`;
+      ctx.textAlign = 'center';
+      ctx.fillText(p.name, px, py + size + 15 * currentScale);
+    }
+
+    ctx.globalAlpha = 1;
+  });
+
+  requestAnimationFrame(animate);
+}
+animate();
+
+const msgBox = document.getElementById('planetMessage');
+const msgTitle = document.getElementById('msgTitle');
+const msgText = document.getElementById('msgText');
+const msgEmoji = document.getElementById('msgEmoji');
+
+function showPlanetMessage(idx) {
+  if (idx < 0 || idx >= planets.length) {
+    msgBox.classList.remove('show');
+    return;
+  }
+  const p = planets[idx];
+  msgEmoji.textContent = p.emoji;
+  msgTitle.textContent = p.name;
+  msgText.textContent = p.message;
+  msgBox.classList.add('show');
+}
+
+const videoElement = document.getElementById('webcam');
+const fingerCountEl = document.getElementById('fingerCount');
+const loadingEl = document.getElementById('loading');
+
+function countFingers(landmarks) {
+  let count = 0;
+  const wrist = landmarks[0];
+
+  const tip = landmarks[4];
+  const ip  = landmarks[3];
+  const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+  const distIP  = Math.hypot(ip.x  - wrist.x, ip.y  - wrist.y);
+  if (distTip > distIP * 1.15) count++;
+
+  const tips = [8, 12, 16, 20];
+  const pips = [6, 10, 14, 18];
+  for (let i = 0; i < 4; i++) {
+    if (landmarks[tips[i]].y < landmarks[pips[i]].y) count++;
+  }
+
+  return count;
+}
+
+let lastTotalFingers = -1;
+let stableCount = 0;
+let stableFrames = 0;
+const STABILITY_THRESHOLD = 6;
+
+const debugCanvas = document.getElementById('debugCanvas');
+const dctx = debugCanvas.getContext('2d');
+debugCanvas.width = 640;
+debugCanvas.height = 480;
+
+function onResults(results) {
+  dctx.clearRect(0, 0, 640, 480);
+  let totalFingers = 0;
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+      const lm = results.multiHandLandmarks[i];
+      
+      lm.forEach((p, idx) => {
+        dctx.fillStyle = [4,8,12,16,20].includes(idx) ? '#ff0' : '#0ff';
+        dctx.beginPath();
+        dctx.arc(p.x * 640, p.y * 480, [4,8,12,16,20].includes(idx) ? 8 : 4, 0, Math.PI*2);
+        dctx.fill();
+      });
+      
+      totalFingers += countFingers(lm);
+    }
+  }
+
+  if (totalFingers > 8) totalFingers = 8;
+
+  if (totalFingers === lastTotalFingers) {
+    stableFrames++;
+  } else {
+    stableFrames = 0;
+    lastTotalFingers = totalFingers;
+  }
+
+  if (stableFrames >= STABILITY_THRESHOLD && stableCount !== totalFingers) {
+    stableCount = totalFingers;
+    updateSolarSystem(totalFingers);
+  }
+
+  fingerCountEl.textContent = totalFingers;
+}
+
+function updateSolarSystem(fingers) {
+  if (fingers === 0) {
+    activePlanet = -1;
+    targetFocus = 0;
+    showPlanetMessage(-1);
+  } else {
+    activePlanet = fingers - 1;
+    targetFocus = 1;
+    showPlanetMessage(activePlanet);
+  }
+}
+
+const hands = new Hands({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.5
+});
+
+hands.onResults(onResults);
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: 'user' }
+    });
+    videoElement.srcObject = stream;
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+    loadingEl.style.display = 'none';
+  } catch (err) {
+    loadingEl.innerHTML = `
+      <div style="color:#ff6666">❌ Error: ${err.message}</div>
+      <div style="font-size:14px; margin-top:10px;">
+        Permite el acceso a la cámara y recarga.
+      </div>`;
+  }
+}
+
+setTimeout(startCamera, 500);
+</script>
+
+</body>
+</html>
